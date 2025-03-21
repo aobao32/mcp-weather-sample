@@ -90,104 +90,7 @@ uv add "mcp[cli]" httpx
 
 这段代码的MCP Server以stdio的方式运行，本身不需要监听端口，当通过stdio接收到MCP Client的请求后，自身再对外发起向`https://api.weather.gov`的访问。
 
-```python
-from typing import Any
-import httpx
-from mcp.server.fastmcp import FastMCP
-
-# Initialize FastMCP server
-mcp = FastMCP("weather")
-
-# Constants
-NWS_API_BASE = "https://api.weather.gov"
-USER_AGENT = "weather-app/1.0"
-
-async def make_nws_request(url: str) -> dict[str, Any] | None:
-    """Make a request to the NWS API with proper error handling."""
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/geo+json"
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, headers=headers, timeout=30.0)
-            response.raise_for_status()
-            return response.json()
-        except Exception:
-            return None
-
-def format_alert(feature: dict) -> str:
-    """Format an alert feature into a readable string."""
-    props = feature["properties"]
-    return f"""
-Event: {props.get('event', 'Unknown')}
-Area: {props.get('areaDesc', 'Unknown')}
-Severity: {props.get('severity', 'Unknown')}
-Description: {props.get('description', 'No description available')}
-Instructions: {props.get('instruction', 'No specific instructions provided')}
-"""
-
-@mcp.tool()
-async def get_alerts(state: str) -> str:
-    """Get weather alerts for a US state. 提供美国州的天气预警
-
-    Args:
-        state: Two-letter US state code (e.g. CA, NY)
-    """
-    url = f"{NWS_API_BASE}/alerts/active/area/{state}"
-    data = await make_nws_request(url)
-
-    if not data or "features" not in data:
-        return "Unable to fetch alerts or no alerts found."
-
-    if not data["features"]:
-        return "No active alerts for this state."
-
-    alerts = [format_alert(feature) for feature in data["features"]]
-    return "\n---\n".join(alerts)
-
-@mcp.tool()
-async def get_forecast(latitude: float, longitude: float) -> str:
-    """Get weather forecast for a location. 提供特定地理坐标的天气预报
-
-    Args:
-        latitude: Latitude of the location
-        longitude: Longitude of the location
-    """
-    # First get the forecast grid endpoint
-    points_url = f"{NWS_API_BASE}/points/{latitude},{longitude}"
-    points_data = await make_nws_request(points_url)
-
-    if not points_data:
-        return "Unable to fetch forecast data for this location."
-
-    # Get the forecast URL from the points response
-    forecast_url = points_data["properties"]["forecast"]
-    forecast_data = await make_nws_request(forecast_url)
-
-    if not forecast_data:
-        return "Unable to fetch detailed forecast."
-
-    # Format the periods into a readable forecast
-    periods = forecast_data["properties"]["periods"]
-    forecasts = []
-    for period in periods[:5]:  # Only show next 5 periods
-        forecast = f"""
-{period['name']}:
-Temperature: {period['temperature']}°{period['temperatureUnit']}
-Wind: {period['windSpeed']} {period['windDirection']}
-Forecast: {period['detailedForecast']}
-"""
-        forecasts.append(forecast)
-
-    return "\n---\n".join(forecasts)
-
-if __name__ == "__main__":
-    # Initialize and run the server
-    mcp.run(transport='stdio')
-```
-
-保存退出。
+由于代码太长，这里就不再粘贴全文了，代码已经放在Github的[这里](https://github.com/aobao32/mcp-weather-sample/blob/main/mcp-server-weather/weather.py)。点击链接查看代码。
 
 ### 3、开启调试
 
@@ -210,7 +113,7 @@ Proxy server listening on port 3000
 
 现在打开浏览器，访问刚才返回的地址`http://localhost:5173/`。可看到MCP Inspector界面。
 
-在左侧选择协议位置，从下拉框中选择`Transport Type`，在`Command`里边输入`uv`，在`Arguments`参数位置，输入`run --with mcp mcp run weather.py`。然后点击`Connect`按钮。
+在左侧选择协议位置，从`Transport Type`下拉框中选择`STDIO`，在`Command`里边输入`uv`，在`Arguments`参数位置，输入`run --with mcp mcp run weather.py`。然后点击`Connect`按钮。
 
 点击页面中间上方的`Tools`标签页，在点击`List Tools`按钮，即可看到下方列出了本MCP Server的两种工具，分别叫做`get_alerts`和`get_forecast`两种方法。如下截图。
 
@@ -222,21 +125,34 @@ Proxy server listening on port 3000
 
 ## 四、构建一个以命令行为基础的MCP Client并连接到Server
 
-### 1、安装环境
+### 1、为何构建这段Sample
+
+MCP官网文档[这里](https://modelcontextprotocol.io/quickstart/client)有一个Sample例子，不过其调用的是Anthropic官方Claude，并不是调用AWS Bedrock上的大模型。因此本文这里主要是对其做了改写：
+
+- 1、将调用Anthropic官方API修改为调用AWS Bedrock的Converse API，并可修改profile切换模型（可选Claude 3.5/3.7等支持Tooluse的模型）；
+- 2、增加了system prompt；
+- 3、增加了循环，支持多个Tool的调用，调整了多次tooluse调用后的输出内容（去重）；
+- 4、在关键环节增加debug的output，直接将关键变量打印到console，便于学习和了解tooluse过程对API参数的拼接组合；
+- 5、修改启动方式为通过uv启动。
+
+### 2、安装环境
+
+从刚才的`mcp-server-weather`目录中退出来，新建一个目录，并初始化环境。
 
 ```shell
-
+uv init mcp-client
+cd mcp-client
+source .venv/bin/activate
+uv add mcp anthropic python-dotenv boto3 loguru
 ```
 
-### 2、部署代码
+### 3、部署代码
 
 编辑如下代码，保存在目录`mcp-client`中，文件名叫做`client.py`。
 
-```python
+由于代码太长，这里就不再粘贴全文了，代码已经放在Github的[这里](https://github.com/aobao32/mcp-weather-sample/blob/main/mcp-client/client.py)。点击链接查看代码。
 
-```
-
-### 3、访问MCP Server
+### 4、访问MCP Server
 
 确保本机有通过AWSCLI配置了AKSK，且AKSK具有访问Bedrock和大模型的权限。
 
@@ -252,7 +168,9 @@ uv run client.py ../mcp-server-weather/weather.py
 
 至此可以看到，一个查询天气的MCP Server工作正常，且这个MCP Server使用了stdio本机调用的方式，无需监听端口，节约资源且高效。
 
-## 五、小结
+## 五、与LLM交互的Tooluse过程详解
+
+## 六、小结
 
 更多按照MCP协议开发的插件可参考这里：
 
