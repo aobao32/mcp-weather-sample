@@ -30,6 +30,8 @@ A：不限制，如果在本机运行，则是用哪个stdio，如果在其他�
 Q：MCP使用什么工具调试？
 A：MCP Inspector，基于Python或者NodeJS的工具，监听本地端口`http://localhost:5173`，然后使用浏览器访问之。
 
+基于以上信息，我们先做一个Demo，然后再学习MCP和Tooluse的一些概念。
+
 ## 二、使用MCP调试工具
 
 在MacOS上安装包管理工具homebrew，并安装NodeJS软件包，以获得`npx`包管理工具。
@@ -144,6 +146,7 @@ uv init mcp-client
 cd mcp-client
 source .venv/bin/activate
 uv add mcp anthropic python-dotenv boto3 loguru
+touch client.py
 ```
 
 ### 3、部署代码
@@ -156,7 +159,7 @@ uv add mcp anthropic python-dotenv boto3 loguru
 
 确保本机有通过AWSCLI配置了AKSK，且AKSK具有访问Bedrock和大模型的权限。
 
-在当前`mcp-client`目录下，执行如下命令启动MCP。
+在当前`mcp-client`目录下，执行如下命令启动。注意替换对应的MCP Server的文件路径。
 
 ```shell
 uv run client.py ../mcp-server-weather/weather.py
@@ -168,7 +171,61 @@ uv run client.py ../mcp-server-weather/weather.py
 
 至此可以看到，一个查询天气的MCP Server工作正常，且这个MCP Server使用了stdio本机调用的方式，无需监听端口，节约资源且高效。
 
-## 五、与LLM交互的Tooluse过程详解
+## 四、借助上文的Demo对MCP交互报文理解和分析
+
+
+
+## 五、与LLM交互的Tool Use过程及关键概念
+
+### 1、主要交互过程
+
+- 1) 业务代码调用MCP Client，查询可用tool，获取到Tool名称和Description
+- 2) 将可用Tool的描述信息交互以特定的JSON格式拼接好，结合业务上的User input，组成System prompt，最终发给LLM发起交互
+- 3) LLM返回结果，判定要执行特定的Tool，此时根据返回结果中assistant标签内可获得LLM确定要执行的Tool名称和Tool use执行ID（预先生成随机字符串作为ID）
+- 4) 业务代码调用MCP Client，再与MCP Server交互，获取执行Tool use的执行结果
+- 5) Tool use的执行结果合并上刚才模型预先生成的Tool use执行ID，加上套上user输入标签作为下一轮对话的输入，再次提交给LLM
+- 6) LLM检查Tool use执行ID确认执行结果，然后再次做改写，输出最终业务结果，或者判定还需要其他Tool，就返回到第2步循环，直到结束
+
+在以上过程中，与MCP的主要交互是：
+
+- 查询可用Tool的名称、描述（即功能）
+- 执行Tool
+
+在以上过程中，与LLM的主要交互是：
+
+- 判定是否需要Tool，需要的话由LLM分配Tool use执行ID
+- 将Tool use执行结果加上Tool use执行ID送回给LLM，判断是否执行成功，以及判断是否还需要其他Tool
+- 如果不需要其他Tool了，LLM会做输出结果的全文改写，生成最终返回结果，如果判定还需要其他Tool，那么就继续分配新的Tool名称和Tool use执行ID
+- 循环以上
+
+### 2、在本机使用stdio方式的MCP Server具有更好的性能
+
+
+
+
+### 3、注意Bedrock上的模型是否支持tool use
+
+例如Nova，或者Claude。
+
+如果不支持tool use，报错是
+
+```
+Error: An error occurred (ValidationException) when calling the Converse operation: This model doesn't support tool use.
+```
+
+### 4、注意LLM返回的stop reason
+
+
+
+### 5、确保多个Tooluse时候ID的正确
+
+tool use id的处理
+
+### 6、拼接历史消息送回LLM的处理（最后一个必须为user、id要对应）
+
+### 6、最终输出信息可分段执行结果，人工拼接
+
+
 
 ## 六、小结
 
@@ -176,7 +233,7 @@ uv run client.py ../mcp-server-weather/weather.py
 
 []()
 
-## 六、参考文档
+## 七、参考文档
 
 Quickstart - For Server Developers
 
