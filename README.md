@@ -4,33 +4,44 @@
 
 ### 1、为何出现了MCP
 
+MCP的全程是Model Context Protocol (MCP)，是由Anthropic公司发起的开源项目，旨在为大模型和第三方工具调用定义一个规范的、标准的接口，便于更多开发者编写的工具代码能够兼容通用。
+
+MCP是对大语言模型（LLM）的Tool use部分的补充，符合MCP标准编写的代码可以向Plug-in插件一样快速集成到自己的代码和工具中。目前社区已经流行着几百到上千种工具，从这些工具的大类型上可分类为对远程API的调用（例如搜索引擎、获取信息、代码提交）、对本地电脑的shell、文件系统、进程、屏幕截图、GUI交互事件的调用、对其他第三方系统包括更多开源组件的调用等。
+
+MCP分成Client和Server端，二者之间通信方式是本机的STDIO或者HTTP-SSE，传输协议是JSON-RPC 2.0。其中STDIO是使用本机标准的Standard IN and Out作为输入输出，适合本机上的进程间通信；HTTP-SSE是指客户端通过HTTP Post方式向Server传输数据，而Server以SSE（Server-Sent Events）方式向客户端发送数据。
+
 ### 2、MCP和大模型Tool Use的区别
+
+MCP本质上对Tool use的抽象和提升，与大模型对话的过程必须要当前大模型支持Tool use，才可以在Prompt中传递对应的Tool参数。而原有Tool use工具完成的任务被封装到MCP Server中，由MCP Client触发调用。Tool use工具执行结果生成的信息，以MCP Server和Client约定的格式返回。
+
+MCP Client和Server可以分别由不同编程语言、不同开发团队开发维护。原来开发大模型的Tool use工具，是按照任意形式随意编写代码的，但是代码不能被别的项目和更多用户复用，符合MCP Client/Server规范的代码，可以作为Tool被别的应用系统调用。
 
 ### 3、MCP架构图
 
-### 4、MCP常用工具
+谈到架构图，大部分教程都引用了MCP官网的架构图。本文也引用这张。
 
-python包管理 uv 
+![](https://blogimg.bitipcman.com/workshop/mcp/m-00.png)
 
-nodejs的npm
+本文后续要构建的Demo中，主要部分均按照这张架构图构建。
 
-MCP Inspector
+### 4、常见问题FAQ
 
-### 5、常见问题FAQ
+- Q：MCP是否依赖特定开发语言
+- A：不依赖。一般用Python和NodeJS为主。
 
-Q：MCP是否依赖特定开发语言
-A：不依赖。一般用Python和NodeJS为主。
+- Q：MCP是否依赖特定大模型
+- A：不依赖。但不同模型功能不一样。例如不是所有模型都支持compute use，或者一些模型不支持多模态，无法输入图像。
 
-Q：MCP是否依赖特定大模型
-A：不依赖。但不同模型功能不一样。例如不是所有模型都支持compute use，或者一些模型不支持多模态，无法输入图像。
+- Q：MCP是否必须在运行大模型的程序一起，是否能独立部署
+- A：不限制，如果在本机运行，则使用stdio方式更高效；如果在其他机器运行，则使用HTTP方式通信。
 
-Q：MCP是否必须在运行大模型的程序一起，是否能独立部署
-A：不限制，如果在本机运行，则是用哪个stdio，如果在其他机器运行，则使用HTTP方式通信
+- Q：MCP使用什么工具调试？
+- A：MCP Inspector，基于Python或者NodeJS的工具，监听本地端口`http://localhost:5173`，然后使用浏览器访问之。
 
-Q：MCP使用什么工具调试？
-A：MCP Inspector，基于Python或者NodeJS的工具，监听本地端口`http://localhost:5173`，然后使用浏览器访问之。
+- Q：MCP有什么常用工具？
+- A：开发MCP可使用各开发语言的SDK，包括Python、Java、TypeScript等。其中Python包管理uv是主要工具，可有效管理Python运行环境，解决多版本的python库依赖问题。另外nodejs的npm可直接启动MCP Inspector，很多MCP Server是使用Node开发的。
 
-基于以上信息，我们先做一个Demo，然后再学习MCP和Tooluse的一些概念。
+基于以上信息，本文做一个Demo来理解MCP和Tooluse的概念。
 
 ## 二、使用MCP调试工具
 
@@ -127,9 +138,9 @@ Proxy server listening on port 3000
 
 ## 四、构建一个以命令行为基础的MCP Client并连接到Server
 
-### 1、为何构建这段Sample
+### 1、如何构建MCP Client
 
-MCP官网文档[这里](https://modelcontextprotocol.io/quickstart/client)有一个Sample例子，不过其调用的是Anthropic官方Claude，并不是调用AWS Bedrock上的大模型。因此本文这里主要是对其做了改写：
+MCP官网文档[这里](https://modelcontextprotocol.io/quickstart/client)有一个Sample例子，不过其调用的是Anthropic官方Claude，并不是调用AWS Bedrock的大模型。因此本文这里主要是对其做了改写：
 
 - 1、将调用Anthropic官方API修改为调用AWS Bedrock的Converse API，并可修改profile切换模型（可选Claude 3.5/3.7等支持Tooluse的模型）；
 - 2、增加了system prompt；
@@ -165,19 +176,29 @@ touch client.py
 uv run client.py ../mcp-server-weather/weather.py
 ```
 
-在终端窗口中，可尝试提问。
+在终端窗口中，可尝试提问。提问后可看到大模型在收到请求后，确认需要调用工具。如下截图。
 
-询问xxx信息，可看到返回结果如下。
+![](https://blogimg.bitipcman.com/workshop/mcp/m-03.png)
+
+在确认需要调用Tool后，MCP Client连接到MCP Server，执行并获取结果。这里可以注意Tool use ID是LLM在上一次运行时候生成的。如下截图。
+
+![](https://blogimg.bitipcman.com/workshop/mcp/m-03-2.png)
+
+如果需要调用多个工具，那么大模型将会运行多个轮次。如下截图，调用第二个工具。
+
+![](https://blogimg.bitipcman.com/workshop/mcp/m-04.png)
+
+所以Tool use完成后，LLM会总结并重写，生成最终输出结果。如下截图。
+
+![](https://blogimg.bitipcman.com/workshop/mcp/m-05.png)
 
 至此可以看到，一个查询天气的MCP Server工作正常，且这个MCP Server使用了stdio本机调用的方式，无需监听端口，节约资源且高效。
 
-## 四、借助上文的Demo对MCP交互报文理解和分析
-
-
-
-## 五、与LLM交互的Tool Use过程及关键概念
+## 四、总结以上MCP与LLM交互的Tool Use过程及关键概念
 
 ### 1、主要交互过程
+
+结合以上代码中打印到console的的debug信息，我们可以看出Tool use方式的数据交互，按时间线的流程如下：
 
 - 1) 业务代码调用MCP Client，查询可用tool，获取到Tool名称和Description
 - 2) 将可用Tool的描述信息交互以特定的JSON格式拼接好，结合业务上的User input，组成System prompt，最终发给LLM发起交互
@@ -186,7 +207,7 @@ uv run client.py ../mcp-server-weather/weather.py
 - 5) Tool use的执行结果合并上刚才模型预先生成的Tool use执行ID，加上套上user输入标签作为下一轮对话的输入，再次提交给LLM
 - 6) LLM检查Tool use执行ID确认执行结果，然后再次做改写，输出最终业务结果，或者判定还需要其他Tool，就返回到第2步循环，直到结束
 
-在以上过程中，与MCP的主要交互是：
+在以上过程中，与MCP Server的主要交互是：
 
 - 查询可用Tool的名称、描述（即功能）
 - 执行Tool
@@ -196,44 +217,90 @@ uv run client.py ../mcp-server-weather/weather.py
 - 判定是否需要Tool，需要的话由LLM分配Tool use执行ID
 - 将Tool use执行结果加上Tool use执行ID送回给LLM，判断是否执行成功，以及判断是否还需要其他Tool
 - 如果不需要其他Tool了，LLM会做输出结果的全文改写，生成最终返回结果，如果判定还需要其他Tool，那么就继续分配新的Tool名称和Tool use执行ID
-- 循环以上
+- 循环以上过程
 
-### 2、在本机使用stdio方式的MCP Server具有更好的性能
+由此我们就可以满足有多轮对话能力的场景。
 
+### 2、MCP Server List tool返回的报文
 
+MCP Server会通过List tool时候声明自己接口的功能，并且声明必须传入的参数。例如本例子中可看到接口收到的信息。
 
+```JSON
+meta=None nextCursor=None tools=[
+    Tool(
+        name='get_alerts', 
+        description='Get weather alerts for a US state. 提供美国州的天气预警\n\nArgs:\n    state: Two-letter US state code (e.g. CA, NY)\n', 
+        inputSchema={
+            'properties': {
+                'state': {
+                    'title': 'State', 
+                    'type': 'string'
+                    }
+                }, 
+            'required': ['state'], 
+            'title': 'get_alertsArguments', 
+            'type': 'object'
+                }
+            ), 
+    Tool(
+        name='get_forecast', 
+        description='Get weather forecast for a location. 提供特定地理坐标的天气预报\n\nArgs:\n    latitude: Latitude of the location\n    longitude:Longitude of the location\n', 
+        inputSchema={
+            'properties': {
+                'latitude': {
+                    'title': 'Latitude', 
+                    'type': 'number'
+                    }, 
+                'longitude': {
+                    'title': 'Longitude', 
+                    'type': 'number'
+                    }
+                }, 
+        'required': ['latitude', 'longitude'], 
+        'title': 'get_forecastArguments', 
+        'type': 'object'
+            }
+        )
+    ]
+```
 
-### 3、注意Bedrock上的模型是否支持tool use
+以上参数就是MCP Server要求必须传入的参数，传入后MCP Server即可发起对应查询。
 
-例如Nova，或者Claude。
+### 3、在本机使用stdio方式的MCP Server具有更好的性能
 
-如果不支持tool use，报错是
+在前文MCP的架构图中，MCP Client对MCP Server的调用有两种方式，分别是STDIO和HTTP SSE。对于绝大部分本机的交互，例如本机的Shell、本机文件系统、本机进程，使用STDIO更为简单方便，由于不需要监听网络端口，因此性能更好。对于要在第三环境运行的独立Server，可使用HTTP SSE的方式，但构建时候也需要注意部分HTTP服务器可能不能完整支持SSE。
+
+本文上述的例子，即是以STDIO方式开发。
+
+### 4、注意Bedrock上的模型是否支持tool use
+
+上文讲述了LLM与MCP Server交互的步骤，其中关键一步是LLM负责判定需要引入Tool use。此时要求LLM必须支持Tool use。大部分模型Anthropic Claude、Amazon Nova Pro等都支持Tool use，但是部分特定版本不支持Tool use。例如截止2025年3月，AWS Bedrock上提供的DeepSeek R1就暂时不支持。
+
+如果在Bedrock上使用的LLM模型不支持tool use，则会收到报错如下：
 
 ```
 Error: An error occurred (ValidationException) when calling the Converse operation: This model doesn't support tool use.
 ```
 
-### 4、注意LLM返回的stop reason
+### 5、注意LLM返回的stop reason
 
+在每次模型运行返回结果的JSON里，会有一个字段叫`STOP REASON`
 
-
-### 5、确保多个Tooluse时候ID的正确
+### 6、确保多个Tooluse时候ID的正确
 
 tool use id的处理
 
-### 6、拼接历史消息送回LLM的处理（最后一个必须为user、id要对应）
+### 7、拼接历史消息送回LLM的处理（最后一个必须为user、id要对应）
 
-### 6、最终输出信息可分段执行结果，人工拼接
+### 8、最终输出信息可分段执行结果，人工拼接
 
-
-
-## 六、小结
+## 五、小结
 
 更多按照MCP协议开发的插件可参考这里：
 
 []()
 
-## 七、参考文档
+## 六、参考文档
 
 Quickstart - For Server Developers
 
