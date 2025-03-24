@@ -26,20 +26,21 @@ MCP Client和Server可以分别由不同编程语言、不同开发团队开发�
 
 ### 4、常见问题FAQ
 
-- Q：MCP是否依赖特定开发语言
-- A：不依赖。一般用Python和NodeJS为主。
+Q：MCP是否依赖特定开发语言
+A：不依赖。一般用Python和NodeJS为主。
 
-- Q：MCP是否依赖特定大模型
-- A：不依赖。但不同模型功能不一样。例如不是所有模型都支持compute use，或者一些模型不支持多模态，无法输入图像。
 
-- Q：MCP是否必须在运行大模型的程序一起，是否能独立部署
-- A：不限制，如果在本机运行，则使用stdio方式更高效；如果在其他机器运行，则使用HTTP方式通信。
+Q：MCP是否依赖特定大模型
+A：不依赖。但不同模型功能不一样。例如不是所有模型都支持compute use，或者一些模型不支持多模态，无法输入图像。
 
-- Q：MCP使用什么工具调试？
-- A：MCP Inspector，基于Python或者NodeJS的工具，监听本地端口`http://localhost:5173`，然后使用浏览器访问之。
+Q：MCP是否必须在运行大模型的程序一起，是否能独立部署
+A：不限制，如果在本机运行，则使用stdio方式更高效；如果在其他机器运行，则使用HTTP方式通信。
 
-- Q：MCP有什么常用工具？
-- A：开发MCP可使用各开发语言的SDK，包括Python、Java、TypeScript等。其中Python包管理uv是主要工具，可有效管理Python运行环境，解决多版本的python库依赖问题。另外nodejs的npm可直接启动MCP Inspector，很多MCP Server是使用Node开发的。
+Q：MCP使用什么工具调试？
+A：MCP Inspector，基于Python或者NodeJS的工具，监听本地端口`http://localhost:5173`，然后使用浏览器访问之。
+
+Q：MCP有什么常用工具？
+A：开发MCP可使用各开发语言的SDK，包括Python、Java、TypeScript等。其中Python包管理uv是主要工具，可有效管理Python运行环境，解决多版本的python库依赖问题。另外nodejs的npm可直接启动MCP Inspector，很多MCP Server是使用Node开发的。
 
 基于以上信息，本文做一个Demo来理解MCP和Tooluse的概念。
 
@@ -194,7 +195,7 @@ uv run client.py ../mcp-server-weather/weather.py
 
 至此可以看到，一个查询天气的MCP Server工作正常，且这个MCP Server使用了stdio本机调用的方式，无需监听端口，节约资源且高效。
 
-## 四、总结以上MCP与LLM交互的Tool Use过程及关键概念
+## 四、以上Demo分析
 
 ### 1、主要交互过程
 
@@ -266,15 +267,17 @@ meta=None nextCursor=None tools=[
 
 以上参数就是MCP Server要求必须传入的参数，传入后MCP Server即可发起对应查询。
 
-### 3、在本机使用stdio方式的MCP Server具有更好的性能
+### 3、使用MCP和Tool use的一些注意事项
+
+#### 1) 在本机使用stdio方式的MCP Server具有更好的性能
 
 在前文MCP的架构图中，MCP Client对MCP Server的调用有两种方式，分别是STDIO和HTTP SSE。对于绝大部分本机的交互，例如本机的Shell、本机文件系统、本机进程，使用STDIO更为简单方便，由于不需要监听网络端口，因此性能更好。对于要在第三环境运行的独立Server，可使用HTTP SSE的方式，但构建时候也需要注意部分HTTP服务器可能不能完整支持SSE。
 
-本文上述的例子，即是以STDIO方式开发。
+因此在实际使用中，建议凡是本机场景的，都使用STDIO方式，不用过于迷信HTTP SSE方式。
 
-### 4、注意Bedrock上的模型是否支持tool use
+#### 2) 注意Bedrock上的模型是否支持tool use
 
-上文讲述了LLM与MCP Server交互的步骤，其中关键一步是LLM负责判定需要引入Tool use。此时要求LLM必须支持Tool use。大部分模型Anthropic Claude、Amazon Nova Pro等都支持Tool use，但是部分特定版本不支持Tool use。例如截止2025年3月，AWS Bedrock上提供的DeepSeek R1就暂时不支持。
+上文讲述了LLM与MCP Server交互的步骤，其中关键的第一步是LLM负责判定需要引入Tool use。此时要求LLM必须支持Tool use。大部分模型Anthropic Claude、Amazon Nova Pro等都支持Tool use，但是部分特定版本不支持Tool use。例如截止2025年3月，AWS Bedrock上提供的DeepSeek R1就暂时不支持。
 
 如果在Bedrock上使用的LLM模型不支持tool use，则会收到报错如下：
 
@@ -282,25 +285,25 @@ meta=None nextCursor=None tools=[
 Error: An error occurred (ValidationException) when calling the Converse operation: This model doesn't support tool use.
 ```
 
-### 5、注意LLM返回的stop reason
+#### 3) 注意LLM返回的stop reason
 
-在每次模型运行返回结果的JSON里，会有一个字段叫`STOP REASON`
+在与LLM多个轮次交互中，每次模型返回结果的JSON里会有一个字段叫`STOP REASON`，这个字段包含着当前模型执行到哪一步的信息。如果`STOP REASON`给出的是`Tooluse`，那么代表此时应该调用MCP Server，然后将MCP Server处理后的结果返回给LLM。如果`STOP REASON`是`Endturn`，那么代表这是LLM输出的最终结果，或者是完全不需要Tooluse，或者是多轮Tooluse交互结束后完毕不再需要Tooluse。
 
-### 6、确保多个Tooluse时候ID的正确
+此外，`STOP REASON`还可能有`max_tokens`等其他原因，请参考Bedrock文档[这里](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_MessageStopEvent.html)。
 
-tool use id的处理
+#### 4) 确保多个Tooluse时候ID的正确
 
-### 7、拼接历史消息送回LLM的处理（最后一个必须为user、id要对应）
+在大模型判定需要执行Tool use时候，LLM返回的信息中，除了上述`STOP REASON`之外，还会提供Tool名称和Tool use id。这个Tool use id是一个随机字符串，代表特定执行序列。在调用MCP Server完成请求后，将MCP Server生成的结果再次送给大模型，此时一定要匹配上刚才LLM分配的Tool use id。如果这二者不匹配，那么Bedrock的API会返回期望的Tool id错误的信息。
 
-### 8、最终输出信息可分段执行结果，人工拼接
+如果提供给LLM多个Tool，有时会出现这样一种场景，那就是LLM判定一个任务需要多次调用多个Tool，并且这几个Tool不是直接顺序关系而是随机顺序执行也可以的场景。此时LLM生成Tool use ID就会一股脑把多个执行任务的ID都生成了，而且每次顺序可能不一样。当执行结果返回时候，LLM可以接受的Tool use ID的返回信息是有顺序要求的。这样一个潜在的顺序问题，可能导致程序报错。比较简单的处理方法可以是在System Prompt中限定模型每次只给出一个Tool use ID，一次就调用一个Tool，如果需要多个工具，模型自己编排好顺序依次执行。这样在编写代码时候就可以采用相对简单的逻辑，一次只处理一个Tool use ID，且每次只返回给LLM一个Tool use结果，皆大欢喜。多次Tool use调用，多循环执行几轮就是了，LLM自己会安排好后续Tool use调用时候再分配新的Tool use ID。
 
-## 五、小结
+#### 5) 拼接历史消息送回LLM的处理（最后一个必须为user、id要对应）
 
-更多按照MCP协议开发的插件可参考这里：
+将MCP Server执行结果返回给LLM时候需要注意，也必须遵循历史对话`assistant`、`user`的Role交替的格式返回。对于用户发起的提问，属于`user`类型毫无疑问，对于模型判定需要引入Tool use的信息，是由模型在`assistant`的role的标签下提供的。此时要调用MCP了。MCP Server返回的执行结果，也必须套用上`user`标签放到对话信息和请求记录中，返回给模型。此时不需要额外再增加用户user输入了，只是把tool use ID、tool use执行结果套上`user`标签发给LLM即可。LLM检查Tool use ID匹配后，会判定执行成功。如果需要后续执行下一个Tool use，模型也会自己处理。
 
-[]()
+#### 6) 最终输出信息可分段执行结果，人工拼接
 
-## 六、参考文档
+## 五、参考文档
 
 Quickstart - For Server Developers
 
@@ -313,3 +316,7 @@ Quickstart - For Client Developers
 Bedrock Converse API tool use - examples
 
 [https://docs.aws.amazon.com/bedrock/latest/userguide/tool-use-examples.html]()
+
+更多按照MCP协议开发的插件
+
+[]()
