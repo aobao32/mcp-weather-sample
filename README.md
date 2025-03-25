@@ -29,7 +29,6 @@ MCP Client和Server可以分别由不同编程语言、不同开发团队开发�
 Q：MCP是否依赖特定开发语言
 A：不依赖。一般用Python和NodeJS为主。
 
-
 Q：MCP是否依赖特定大模型
 A：不依赖。但不同模型功能不一样。例如不是所有模型都支持compute use，或者一些模型不支持多模态，无法输入图像。
 
@@ -301,8 +300,6 @@ Error: An error occurred (ValidationException) when calling the Converse operati
 
 将MCP Server执行结果返回给LLM时候需要注意，也必须遵循历史对话`assistant`、`user`的Role交替的格式返回。对于用户发起的提问，属于`user`类型毫无疑问，对于模型判定需要引入Tool use的信息，是由模型在`assistant`的role的标签下提供的。此时要调用MCP了。MCP Server返回的执行结果，也必须套用上`user`标签放到对话信息和请求记录中，返回给模型。此时不需要额外再增加用户user输入了，只是把tool use ID、tool use执行结果套上`user`标签发给LLM即可。LLM检查Tool use ID匹配后，会判定执行成功。如果需要后续执行下一个Tool use，模型也会自己处理。
 
-#### 6) 最终输出信息可分段执行结果，人工拼接
-
 ## 五、参考文档
 
 Quickstart - For Server Developers
@@ -317,6 +314,6 @@ Bedrock Converse API tool use - examples
 
 [https://docs.aws.amazon.com/bedrock/latest/userguide/tool-use-examples.html]()
 
-更多按照MCP协议开发的插件
+大量第三方MCP Server
 
-[]()
+[https://github.com/modelcontextprotocol/servers]()
