@@ -300,6 +300,26 @@ Error: An error occurred (ValidationException) when calling the Converse operati
 
 将MCP Server执行结果返回给LLM时候需要注意，也必须遵循历史对话`assistant`、`user`的Role交替的格式返回。对于用户发起的提问，属于`user`类型毫无疑问，对于模型判定需要引入Tool use的信息，是由模型在`assistant`的role的标签下提供的。此时要调用MCP了。MCP Server返回的执行结果，也必须套用上`user`标签放到对话信息和请求记录中，返回给模型。此时不需要额外再增加用户user输入了，只是把tool use ID、tool use执行结果套上`user`标签发给LLM即可。LLM检查Tool use ID匹配后，会判定执行成功。如果需要后续执行下一个Tool use，模型也会自己处理。
 
+#### 6) 在不使用uv管理环境时候，运行mcp可能会出现的报错的调试
+
+如果不使用uv搭建环境，而是直接将有关python文件下载下来，那么可以这样安装依存性包：
+
+```shell
+pip3 install mcp anthropic python-dotenv boto3 loguru
+```
+
+然后在本机上确保Python可执行文件的正确，否则会出现找不到Python可执行文件的问题。
+
+```shelk
+sudo ln -s /usr/local/bin/python3 /usr/local/bin/python
+```
+
+这样然后即可运行：
+
+```shell
+python3 client.py weather.py
+```
+
 ## 五、参考文档
 
 Quickstart - For Server Developers
