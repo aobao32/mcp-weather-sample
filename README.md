@@ -155,6 +155,7 @@ MCP官网文档[这里](https://modelcontextprotocol.io/quickstart/client)有一
 ```shell
 uv init mcp-client
 cd mcp-client
+uv venv
 source .venv/bin/activate
 uv add mcp anthropic python-dotenv boto3 loguru
 touch client.py
@@ -194,7 +195,7 @@ uv run client.py ../mcp-server-weather/weather.py
 
 至此可以看到，一个查询天气的MCP Server工作正常，且这个MCP Server使用了stdio本机调用的方式，无需监听端口，节约资源且高效。
 
-## 四、以上Demo分析
+## 五、以上Demo分析
 
 ### 1、主要交互过程
 
@@ -320,7 +321,7 @@ sudo ln -s /usr/local/bin/python3 /usr/local/bin/python
 python3 client.py weather.py
 ```
 
-## 五、参考文档
+## 六、参考文档
 
 Quickstart - For Server Developers
 
